@@ -1,58 +1,12 @@
 import time
+import ctypes
+
 import pyautogui
 import pygetwindow as gw
 import pydirectinput
-import ctypes
-import win32api
-import win32con
 
-KEYEVENTF_KEYUP = 0x0002
+from biblia.obs import mostrar_biblia
 
-VK_CONTROL = 0x11
-VK_L = 0x4C
-
-
-def ctrl_l_global():
-
-    user32 = ctypes.windll.user32
-
-    # CTRL abajo
-    user32.keybd_event(
-        VK_CONTROL,
-        0,
-        0,
-        0
-    )
-
-    time.sleep(0.03)
-
-    # L abajo
-    user32.keybd_event(
-        VK_L,
-        0,
-        0,
-        0
-    )
-
-    time.sleep(0.03)
-
-    # L arriba
-    user32.keybd_event(
-        VK_L,
-        0,
-        KEYEVENTF_KEYUP,
-        0
-    )
-
-    time.sleep(0.03)
-
-    # CTRL arriba
-    user32.keybd_event(
-        VK_CONTROL,
-        0,
-        KEYEVENTF_KEYUP,
-        0
-    )
 
 NOMBRE_VENTANA = (
     "e-sword - the Sword of the LORD "
@@ -108,9 +62,10 @@ def buscar(referencia, mostrar_obs=False):
 
             print("📺 Hotkey OBS → Biblia")
 
-            # IMPORTANTE:
-            # Mandarlo ANTES de tocar/focalizar e-Sword.
-            ctrl_l_global()
+            # Hotkey propio de OBS (Ctrl+Shift+F11),
+            # ya NO es Ctrl+L, así que la búsqueda de
+            # e-Sword no vuelve a activar la escena.
+            mostrar_biblia()
 
             time.sleep(0.10)
 
@@ -133,6 +88,9 @@ def buscar(referencia, mostrar_obs=False):
             ctypes.windll.user32.SetForegroundWindow(
                 hwnd
             )
+            if ctypes.windll.user32.GetForegroundWindow() != hwnd:
+                print("⚠️ e-Sword no tomó el foco, cancelo")
+                return False
         except Exception:
             pass
 

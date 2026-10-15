@@ -2,20 +2,19 @@ import time
 import pydirectinput
 
 
+def _hotkey(*teclas):
+    for t in teclas:
+        pydirectinput.keyDown(t)
+        time.sleep(0.04)
+    for t in reversed(teclas):
+        pydirectinput.keyUp(t)
+
+
 def mostrar_presentacion():
+    # OBS: Ctrl + Shift + F12
+    _hotkey("ctrl", "shift", "f12")
 
-    # Hotkey configurado en OBS:
-    # Ctrl + Shift + F12
 
-    pydirectinput.keyDown("ctrl")
-    time.sleep(0.04)
-
-    pydirectinput.keyDown("shift")
-    time.sleep(0.04)
-
-    pydirectinput.keyDown("f12")
-    time.sleep(0.04)
-
-    pydirectinput.keyUp("f12")
-    pydirectinput.keyUp("shift")
-    pydirectinput.keyUp("ctrl")
+def mostrar_biblia():
+    # OBS: Ctrl + Shift + F11
+    _hotkey("ctrl", "shift", "f11")

@@ -6,6 +6,7 @@ import sys
 import time
 import subprocess
 
+
 from vosk import Model, KaldiRecognizer
 from biblia.controlador import Controlador
 from biblia.versiones import ControladorVersiones
@@ -19,7 +20,7 @@ class BibliaVoz:
         dispositivo=None,
         samplerate=16000
     ):
-        self.cola = queue.Queue(maxsize=10)
+        self.cola = queue.Queue(maxsize=300)
 
         self.modelo = Model(modelo)
 
@@ -54,14 +55,14 @@ class BibliaVoz:
 
             except queue.Empty:
                 pass
-
+    
     def escuchar(self):
 
         print("🎤 Escuchando...")
 
         with sd.RawInputStream(
             samplerate=self.samplerate,
-            blocksize=500,
+            blocksize=2000,
             device=self.dispositivo,
             dtype="int16",
             channels=1,
@@ -127,6 +128,7 @@ class BibliaVoz:
                         )
                         self.versiones.procesar(
                             texto
+                            final=True
                         )
 
                     self.ultimo_parcial = ""

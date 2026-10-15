@@ -27,7 +27,8 @@ PALABRAS_RELLENO = {
     "el",
     "los",
     "a",
-    "pablo"
+    "pablo",
+    "apostoles"
 }
 
 
@@ -45,24 +46,35 @@ def quitar_tildes(texto):
     )
 
 
+LIBROS_NUMERADOS = {
+    "samuel", "reyes", "cronicas", "corintios",
+    "tesalonicenses", "timoteo", "pedro", "juan",
+}
+
+
 def normalizar_palabras(texto):
 
-    texto = quitar_tildes(texto)
-
-    palabras = texto.split()
-
+    palabras = quitar_tildes(texto).split()
     resultado = []
 
-    for palabra in palabras:
+    for i, palabra in enumerate(palabras):
 
-        # primera -> 1, segunda -> 2...
         if palabra in REEMPLAZOS:
+
+            # Solo convertir si lo que sigue es un libro numerado
+            siguiente = next(
+                (p for p in palabras[i + 1:]
+                 if p not in PALABRAS_RELLENO),
+                None
+            )
+
             resultado.append(
                 REEMPLAZOS[palabra]
+                if siguiente in LIBROS_NUMERADOS
+                else palabra
             )
             continue
 
-        # Ignorar palabras decorativas
         if palabra in PALABRAS_RELLENO:
             continue
 

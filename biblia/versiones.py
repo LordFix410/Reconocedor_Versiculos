@@ -1,4 +1,5 @@
 import time
+import re
 import unicodedata
 import pyautogui
 
@@ -338,6 +339,12 @@ COMANDOS_ORDENADOS = sorted(
     reverse=True
 )
 
+def _contiene_comando(comando, texto):
+    return re.search(
+        rf"(?<!\w){re.escape(comando)}(?!\w)",
+        texto
+    ) is not None
+
 # ============================================================
 # BUSCAR VERSIÓN
 # ============================================================
@@ -396,7 +403,7 @@ def buscar_version(texto):
 
     for comando in COMANDOS_ORDENADOS:
 
-        if comando in despues_version:
+        if _contiene_comando(comando, despues_version):
 
             return (
                 COMANDOS_NORMALIZADOS[comando],
@@ -408,38 +415,27 @@ def buscar_version(texto):
 class ControladorVersiones:
 
     def __init__(self):
-        self.ultimo_click = None
-        self.tiempo_ultimo_click = 0.0
+        self.click_en_bloque = None
 
-    def procesar(self, texto):
+    def procesar(self, texto, final=False):
 
         resultado = buscar_version(texto)
 
         if resultado is None:
+            if final:
+                self.click_en_bloque = None
             return
 
         version, comando_detectado = resultado
-
         clave = version["pos"]
-        ahora = time.monotonic()
 
-        # Evitar parcial + final duplicado
-        if (
-            clave == self.ultimo_click
-            and ahora - self.tiempo_ultimo_click < 2
-        ):
+        if clave == self.click_en_bloque:
+            if final:
+                self.click_en_bloque = None
             return
 
-        self.ultimo_click = clave
-        self.tiempo_ultimo_click = ahora
+        print(f"🎯 Versión: {comando_detectado}")
+        pyautogui.click(*clave)
 
-        x, y = version["pos"]
-
-        print(
-            f"🎯 Versión: {comando_detectado}"
-        )
-
-        pyautogui.click(
-            x,
-            y
-        )
+        # Si fue en el final, el bloque ya terminó
+        self.click_en_bloque = None if final else clave

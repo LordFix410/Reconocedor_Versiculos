@@ -5,7 +5,7 @@ from biblia.detector import (
     contiene_libro,
 )
 from biblia.normalizador import normalizar_palabras
-from biblia.numeros import convertir_numero
+from biblia.numeros import convertir_numero, DECENAS, CENTENAS
 
 
 PALABRAS_VERSICULO = {
@@ -15,6 +15,7 @@ PALABRAS_VERSICULO = {
     "versos",
 }
 
+# Quité "vamos": es demasiado común al hablar normal.
 COMANDOS_BIBLIA = {
     "vamonos",
     "vayamonos",
@@ -23,7 +24,6 @@ COMANDOS_BIBLIA = {
     "busquemos",
     "poneme",
     "pongame",
-    "vamos",
 }
 
 COMANDOS_PRESENTACION = {
@@ -32,8 +32,16 @@ COMANDOS_PRESENTACION = {
     "diapositiva",
     "diapositivas",
     "presentacion",
-    "positiva"
+    "positiva",
 }
+
+VENTANA_COMANDO = 8.0       # seg que el comando "veamos" sigue vigente
+VENTANA_VERSICULO = 20.0    # seg para ignorar el mismo versículo repetido
+PALABRAS_CERCA = 10         # el comando debe estar en las últimas N palabras
+
+# Números que pueden seguir creciendo mientras Vosk aún habla
+# ("treinta" -> "treinta y cinco").
+NUMEROS_INCOMPLETOS = set(DECENAS) | set(CENTENAS) | {"veinte"}
 
 
 class Centinela:
@@ -43,17 +51,40 @@ class Centinela:
         self.max_palabras = max_palabras
         self.buffer = []
 
-        self.mostrar_proxima_cita = False
+        self.comando_hasta = 0.0
         self.evento_ejecutado_en_parcial = None
         self.ultimo_evento = None
         self.tiempo_ultimo_evento = 0.0
         self.bloqueo_duplicado = 2.0
-        self.evento_ejecutado_en_parcial = None
+
+        self.ultimo_versiculo = None
+        self.tiempo_versiculo = 0.0
 
         self.libro_actual = None
         self.capitulo_actual = None
         self.tiempo_capitulo = 0.0
         self.ventana_correccion = 3.0
+
+    # ==========================================
+    # COMANDO DE BIBLIA (con caducidad)
+    # ==========================================
+
+    def _armar_comando(self):
+        self.comando_hasta = time.monotonic() + VENTANA_COMANDO
+
+    def _comando_activo(self):
+        return time.monotonic() < self.comando_hasta
+
+    def _consumir_comando(self):
+        activo = self._comando_activo()
+        self.comando_hasta = 0.0
+        return activo
+
+    def _hay_comando_cerca(self, palabras):
+        return any(
+            p in COMANDOS_BIBLIA
+            for p in palabras[-PALABRAS_CERCA:]
+        )
 
     # ==========================================
     # DUPLICADOS
@@ -65,8 +96,7 @@ class Centinela:
 
         if (
             evento == self.ultimo_evento
-            and
-            ahora - self.tiempo_ultimo_evento
+            and ahora - self.tiempo_ultimo_evento
             < self.bloqueo_duplicado
         ):
             return True
@@ -75,6 +105,45 @@ class Centinela:
         self.tiempo_ultimo_evento = ahora
 
         return False
+
+    def _versiculo_repetido(self, numero):
+        """
+        Ignora el mismo versículo repetido durante 20 s
+        (se extiende mientras lo sigan repitiendo).
+        """
+        ahora = time.monotonic()
+
+        if (
+            numero == self.ultimo_versiculo
+            and ahora - self.tiempo_versiculo
+            < VENTANA_VERSICULO
+        ):
+            self.tiempo_versiculo = ahora
+            return True
+
+        self.ultimo_versiculo = numero
+        self.tiempo_versiculo = ahora
+        return False
+
+    def _nuevo_capitulo(self, libro, capitulo):
+        # Solo reiniciar si de verdad es otro capítulo
+        if (libro, capitulo) != (self.libro_actual, self.capitulo_actual):
+            self.ultimo_versiculo = None
+
+        self.libro_actual = libro
+        self.capitulo_actual = capitulo
+        self.tiempo_capitulo = time.monotonic()
+        
+    def _numero_incompleto(self, palabras, inicio, usadas):
+        """
+        True si el parcial termina justo en un número
+        que todavía puede crecer ("treinta" -> "treinta y cinco").
+        En ese caso esperamos al resultado final.
+        """
+        if inicio + usadas < len(palabras):
+            return False
+
+        return palabras[inicio + usadas - 1] in NUMEROS_INCOMPLETOS
 
     # ==========================================
     # PARCIALES VOSK
@@ -87,9 +156,11 @@ class Centinela:
         if not palabras:
             return None
 
-        
+        # Armar comando solo si está cerca del final del parcial.
+        if self._hay_comando_cerca(palabras):
+            self._armar_comando()
+
         # =====================================
-        # VERSÍCULO EXPLÍCITO RÁPIDO
         # "versiculo ocho"
         # =====================================
 
@@ -100,53 +171,84 @@ class Centinela:
 
             posicion = i + 1
 
-            # Permitir:
-            # "versiculo numero ocho"
             while (
                 posicion < len(palabras)
                 and palabras[posicion] == "numero"
             ):
                 posicion += 1
 
-            numero, _ = convertir_numero(
+            numero, usadas = convertir_numero(
                 palabras[posicion:]
             )
 
             if numero is None:
                 continue
 
-            evento = (
-                "VERSICULO",
-                numero,
-            )
-
-            if self._es_duplicado(evento):
+            if self._numero_incompleto(
+                palabras, posicion, usadas
+            ):
                 return None
 
-            mostrar_obs = any(
-                p in COMANDOS_BIBLIA
-                for p in palabras
-            )
+            # ¿Ya dijo libro + capítulo en esta misma frase?
+            # "lucas once ... y empieza el versiculo dos"
+            ref = detectar_referencia(texto)
+
+            if ref is not None:
+
+                evento = (
+                    "REFERENCIA",
+                    ref["libro"],
+                    ref["capitulo"],
+                    numero,
+                )
+
+                if evento == self.evento_ejecutado_en_parcial:
+                    return None
+
+                if self._es_duplicado(evento):
+                    return None
+
+                self.evento_ejecutado_en_parcial = evento
+                self._nuevo_capitulo(
+                    ref["libro"], ref["capitulo"]
+                )
+                self.ultimo_versiculo = numero
+                self.tiempo_versiculo = time.monotonic()
+
+                return {
+                    "tipo": "REFERENCIA",
+                    "libro": ref["libro"],
+                    "capitulo": ref["capitulo"],
+                    "versiculo": numero,
+                    "mostrar_obs": self._consumir_comando(),
+                }
+
+            # Solo versículo
+            evento = ("VERSICULO", numero)
+
+            if evento == self.evento_ejecutado_en_parcial:
+                return None
+
+            if self._versiculo_repetido(numero):
+                return None
+
+            self.evento_ejecutado_en_parcial = evento
 
             return {
                 "tipo": "VERSICULO",
                 "versiculo": numero,
-                "mostrar_obs": mostrar_obs,
+                "mostrar_obs": self._consumir_comando(),
             }
-        # Para referencias completas en parciales,
-        # exigimos comando de Biblia.
-        tiene_comando = any(
-            p in COMANDOS_BIBLIA
-            for p in palabras
-        )
+
+        # =====================================
+        # REFERENCIA COMPLETA ("juan tres dieciseis")
+        # =====================================
 
         referencia = detectar_referencia(texto)
 
         if referencia is None:
             return None
 
-        # No ejecutar capítulo incompleto
-        # desde un parcial.
         if referencia["versiculo"] is None:
             return None
 
@@ -154,14 +256,9 @@ class Centinela:
         capitulo = referencia["capitulo"]
         versiculo = referencia["versiculo"]
 
-        # IMPORTANTE:
-        # mostrar_obs NO forma parte de la firma
-        # anti-duplicados.
-        # ¿La frase contiene un comando real para mostrar Biblia?
-        tiene_comando = any(
-            p in COMANDOS_BIBLIA
-            for p in palabras
-        )
+        # Esperar si el número final aún puede crecer.
+        if palabras[-1] in NUMEROS_INCOMPLETOS:
+            return None
 
         evento = (
             "REFERENCIA",
@@ -170,31 +267,23 @@ class Centinela:
             versiculo,
         )
 
-        # Si esta misma referencia YA fue ejecutada
-        # durante este bloque de parciales Vosk,
-        # no volver a ejecutarla aunque pasen 2, 10
-        # o 30 segundos.
         if evento == self.evento_ejecutado_en_parcial:
             return None
 
         if self._es_duplicado(evento):
             return None
 
-        # Recordar durante TODO este bloque Vosk
         self.evento_ejecutado_en_parcial = evento
-        self.libro_actual = libro
-        self.capitulo_actual = capitulo
-        self.tiempo_capitulo = time.monotonic()
+        self._nuevo_capitulo(libro, capitulo)
+        self.ultimo_versiculo = versiculo
+        self.tiempo_versiculo = time.monotonic()
 
-        # IMPORTANTE:
-        # si hubo comando -> OBS
-        # si no hubo comando -> solo e-Sword
         return {
             "tipo": "REFERENCIA",
             "libro": libro,
             "capitulo": capitulo,
             "versiculo": versiculo,
-            "mostrar_obs": tiene_comando,
+            "mostrar_obs": self._consumir_comando(),
         }
 
     # ==========================================
@@ -203,9 +292,7 @@ class Centinela:
 
     def procesar(self, texto):
 
-        palabras_nuevas = normalizar_palabras(
-            texto
-        )
+        palabras_nuevas = normalizar_palabras(texto)
 
         if not palabras_nuevas:
             return None
@@ -218,47 +305,35 @@ class Centinela:
             p in COMANDOS_PRESENTACION
             for p in palabras_nuevas
         ):
-
-            self.mostrar_proxima_cita = False
+            self.comando_hasta = 0.0
             self.buffer.clear()
+            self.evento_ejecutado_en_parcial = None
 
-            return {
-                "tipo": "PRESENTACION"
-            }
+            return {"tipo": "PRESENTACION"}
 
         # --------------------------------------
         # COMANDO BIBLIA
         # --------------------------------------
 
-        if any(
-            p in COMANDOS_BIBLIA
-            for p in palabras_nuevas
-        ):
-            self.mostrar_proxima_cita = True
+        if self._hay_comando_cerca(palabras_nuevas):
+            self._armar_comando()
 
         # --------------------------------------
         # BUFFER
         # --------------------------------------
 
-        self.buffer.extend(
-            palabras_nuevas
-        )
+        self.buffer.extend(palabras_nuevas)
+        self.buffer = self.buffer[-self.max_palabras:]
 
-        self.buffer = self.buffer[
-            -self.max_palabras:
-        ]
+        contexto = " ".join(self.buffer)
 
-        contexto = " ".join(
-            self.buffer
-        )
+        ejecutado = self.evento_ejecutado_en_parcial
 
         # ======================================
         # 1. REFERENCIA COMPLETA / CAPÍTULO
         # ======================================
 
-        referencia = detectar_referencia(
-            contexto
-        )
+        referencia = detectar_referencia(contexto)
 
         if referencia is not None:
 
@@ -266,73 +341,66 @@ class Centinela:
             capitulo = referencia["capitulo"]
             versiculo = referencia["versiculo"]
 
-            mostrar = self.mostrar_proxima_cita
+            self._nuevo_capitulo(libro, capitulo)
 
-            # Guardamos siempre el capítulo,
-            # incluso si el parcial ya ejecutó la cita.
-            self.libro_actual = libro
-            self.capitulo_actual = capitulo
-            self.tiempo_capitulo = time.monotonic()
+            # El parcial ya mandó libro+capítulo+versículo:
+            # el final de solo "capítulo" no debe pisarlo.
+            if (
+                versiculo is None
+                and ejecutado is not None
+                and ejecutado[0] == "REFERENCIA"
+                and ejecutado[1] == libro
+                and ejecutado[2] == capitulo
+            ):
+                self.evento_ejecutado_en_parcial = None
+                self.comando_hasta = 0.0
+                self.buffer.clear()
+                return None
 
             if versiculo is None:
-
-                evento = (
-                    "CAPITULO",
-                    libro,
-                    capitulo,
-                )
-
+                evento = ("CAPITULO", libro, capitulo)
                 resultado = {
                     "tipo": "CAPITULO",
                     "libro": libro,
                     "capitulo": capitulo,
-                    "mostrar_obs": mostrar,
                 }
-
             else:
-
                 evento = (
-                    "REFERENCIA",
-                    libro,
-                    capitulo,
-                    versiculo,
+                    "REFERENCIA", libro, capitulo, versiculo
                 )
-
                 resultado = {
                     "tipo": "REFERENCIA",
                     "libro": libro,
                     "capitulo": capitulo,
                     "versiculo": versiculo,
-                    "mostrar_obs": mostrar,
                 }
 
             self.buffer.clear()
-            self.mostrar_proxima_cita = False
-
-            # Si este mismo evento YA se ejecutó
-            # durante los parciales de este bloque,
-            # el resultado final NO debe repetirlo.
-            if evento == self.evento_ejecutado_en_parcial:
-                self.evento_ejecutado_en_parcial = None
-                return None
-
-            # Cerramos el bloque parcial anterior.
             self.evento_ejecutado_en_parcial = None
+
+            # Ya ejecutado por el parcial: no repetir.
+            if evento == ejecutado:
+                self.comando_hasta = 0.0
+                return None
 
             if self._es_duplicado(evento):
                 return None
 
+            if versiculo is not None:
+                self.ultimo_versiculo = versiculo
+                self.tiempo_versiculo = time.monotonic()
+
+            resultado["mostrar_obs"] = self._consumir_comando()
             return resultado
 
         # ======================================
         # 2. CORRECCIÓN RÁPIDA
-        # "Isaias uno" → "uno dieciocho"
+        # "Isaias uno" -> "uno dieciocho"
         # ======================================
 
         if (
             self.capitulo_actual is not None
-            and
-            time.monotonic() - self.tiempo_capitulo
+            and time.monotonic() - self.tiempo_capitulo
             <= self.ventana_correccion
         ):
 
@@ -351,45 +419,33 @@ class Centinela:
 
                 if numero2 is not None:
 
-                    evento = (
-                        "VERSICULO",
-                        numero2,
-                    )
+                    self.evento_ejecutado_en_parcial = None
 
-                    if self._es_duplicado(evento):
+                    if self._versiculo_repetido(numero2):
                         return None
 
-                    mostrar = (
-                        self.mostrar_proxima_cita
-                    )
-
-                    self.mostrar_proxima_cita = False
                     self.buffer.clear()
 
                     return {
                         "tipo": "VERSICULO",
                         "versiculo": numero2,
-                        "mostrar_obs": mostrar,
+                        "mostrar_obs": self._consumir_comando(),
                     }
 
         # ======================================
         # 3. "VERSICULO 18"
         # ======================================
 
-        for i, palabra in enumerate(
-            palabras_nuevas
-        ):
+        for i, palabra in enumerate(palabras_nuevas):
 
             if palabra not in PALABRAS_VERSICULO:
                 continue
 
             posicion = i + 1
 
-            # "versiculo numero dieciocho"
             while (
                 posicion < len(palabras_nuevas)
-                and palabras_nuevas[posicion]
-                == "numero"
+                and palabras_nuevas[posicion] == "numero"
             ):
                 posicion += 1
 
@@ -400,37 +456,38 @@ class Centinela:
             if numero is None:
                 continue
 
-            evento = (
-                "VERSICULO",
-                numero,
-            )
+            evento = ("VERSICULO", numero)
 
-            if self._es_duplicado(evento):
+            self.buffer.clear()
+            self.evento_ejecutado_en_parcial = None
+
+            # Ya ejecutado en el parcial o repetido.
+            if evento == ejecutado:
+                self.comando_hasta = 0.0
                 return None
 
-            mostrar = self.mostrar_proxima_cita
-
-            self.mostrar_proxima_cita = False
-            self.buffer.clear()
+            if self._versiculo_repetido(numero):
+                return None
 
             return {
                 "tipo": "VERSICULO",
                 "versiculo": numero,
-                "mostrar_obs": mostrar,
+                "mostrar_obs": self._consumir_comando(),
             }
 
         # ======================================
         # 4. "MIREMOS EL 18"
+        # Solo con comando vigente, sin libro, y el número
+        # tiene que estar al inicio de la frase (no en
+        # cualquier parte).
         # ======================================
 
         if (
-            self.mostrar_proxima_cita
-            and not contiene_libro(contexto)
+            self._comando_activo()
+            and not contiene_libro(" ".join(palabras_nuevas))
         ):
 
-            for i in range(
-                len(palabras_nuevas)
-            ):
+            for i in range(min(3, len(palabras_nuevas))):
 
                 numero, _ = convertir_numero(
                     palabras_nuevas[i:]
@@ -439,21 +496,15 @@ class Centinela:
                 if numero is None:
                     continue
 
-                evento = (
-                    "VERSICULO",
-                    numero,
-                )
-
-                if self._es_duplicado(evento):
+                if self._versiculo_repetido(numero):
                     return None
 
-                self.mostrar_proxima_cita = False
                 self.buffer.clear()
 
                 return {
                     "tipo": "VERSICULO",
                     "versiculo": numero,
-                    "mostrar_obs": True,
+                    "mostrar_obs": self._consumir_comando(),
                 }
 
         return None

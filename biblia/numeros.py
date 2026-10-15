@@ -1,8 +1,6 @@
 UNIDADES = {
     "cero": 0,
     "uno": 1,
-    "una": 1,
-    "un": 1,
     "dos": 2,
     "tres": 3,
     "cuatro": 4,
