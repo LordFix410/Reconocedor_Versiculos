@@ -26,6 +26,7 @@ LIBROS = {
     "salmos": "Salmos",
     "proverbios": "Proverbios",
     "eclesiastes": "Eclesiastes",
+    "vivencias": "Eclesiastes",
     "cantares": "Cantares",
     "isaias": "Isaias",
     "jeremias": "Jeremias",

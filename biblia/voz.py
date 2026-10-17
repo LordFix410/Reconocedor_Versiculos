@@ -127,7 +127,7 @@ class BibliaVoz:
                             texto
                         )
                         self.versiones.procesar(
-                            texto
+                            texto,
                             final=True
                         )
 

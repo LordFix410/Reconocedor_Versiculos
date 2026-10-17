@@ -300,10 +300,10 @@ class Centinela:
         # --------------------------------------
         # PRESENTACIÓN
         # --------------------------------------
-
+        texto_norm = " ".join(palabras_nuevas)
         if any(
-            p in COMANDOS_PRESENTACION
-            for p in palabras_nuevas
+            c in texto_norm
+            for c in COMANDOS_PRESENTACION
         ):
             self.comando_hasta = 0.0
             self.buffer.clear()

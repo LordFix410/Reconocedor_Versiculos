@@ -55,16 +55,13 @@ def buscar(referencia, mostrar_obs=False):
     try:
 
         # =====================================
-        # 1. OBS
+        # 1. OBS (Ctrl + Shift + F11)
         # =====================================
 
         if mostrar_obs:
 
             print("📺 Hotkey OBS → Biblia")
 
-            # Hotkey propio de OBS (Ctrl+Shift+F11),
-            # ya NO es Ctrl+L, así que la búsqueda de
-            # e-Sword no vuelve a activar la escena.
             mostrar_biblia()
 
             time.sleep(0.10)
@@ -82,22 +79,17 @@ def buscar(referencia, mostrar_obs=False):
         except Exception:
             pass
 
-        hwnd = ventana._hWnd
-
         try:
             ctypes.windll.user32.SetForegroundWindow(
-                hwnd
+                ventana._hWnd
             )
-            if ctypes.windll.user32.GetForegroundWindow() != hwnd:
-                print("⚠️ e-Sword no tomó el foco, cancelo")
-                return False
         except Exception:
             pass
 
         time.sleep(0.10)
 
         # =====================================
-        # 3. CTRL + L SOLO PARA e-SWORD
+        # 3. CTRL + L (comando de e-Sword)
         # =====================================
 
         print("📖 Abriendo búsqueda e-Sword")

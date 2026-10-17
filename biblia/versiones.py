@@ -88,7 +88,8 @@ VERSIONES = [
             "biblia el lenguaje sencillo",
             "bls",
             "be ele ese",
-            "lenguaje sencillo"
+            "lenguaje sencillo",
+            "sencillo"
         ],
         "pos": (1192, 389),
     },
@@ -170,14 +171,13 @@ VERSIONES = [
 
     {
         "comandos": [
-            "traduccion lenguaje sencillo",
             "tla",
             "te ele a",
-            "lenguaje sencillo",
             "te elia",
             "te el dia",
             "pelea",
-            "de lear"
+            "de lear",
+            "actual"
         ],
         "pos": (1703, 390),
     },
@@ -243,7 +243,10 @@ VERSIONES = [
             "el libro del pueblo de dios",
             "pueblo de dios",
             "lpd",
-            "ele pe de"
+            "ele pe de",
+            "pediste",
+            "vedette",
+            "puede",
         ],
         "pos": (1459, 407),
     },
@@ -349,69 +352,65 @@ def _contiene_comando(comando, texto):
 # BUSCAR VERSIÓN
 # ============================================================
 
+
+# ============================================================
+# BUSCAR VERSIÓN O BIBLIA
+# ============================================================
+
 def buscar_version(texto):
 
-    texto = normalizar_texto(
-        texto
-    )
-
+    texto = normalizar_texto(texto)
     palabras = texto.split()
 
-
     # --------------------------------------------------------
-    # SOLAMENTE ACTIVAR SI DIJO "VERSION"
+    # DETECTAR PALABRAS CLAVE: VERSION O BIBLIA
     # --------------------------------------------------------
 
-    if "version" not in palabras:
+    palabras_clave = {"version", "biblia", "traduccion", "lenguaje", "aversion"}
 
+    indices_clave = [
+        i for i, palabra in enumerate(palabras)
+        if palabra in palabras_clave
+    ]
+
+    # Si no mencionó ninguna palabra clave, no hacer nada
+    if not indices_clave:
         return None
 
-
     # --------------------------------------------------------
-    # TOMAR LA ÚLTIMA APARICIÓN DE "VERSION"
-    # --------------------------------------------------------
-
-    indice_version = (
-        len(palabras)
-        - 1
-        - palabras[::-1].index("version")
-    )
-
-
-    # --------------------------------------------------------
-    # TEXTO DESPUÉS DE "VERSION"
+    # TOMAR LA ÚLTIMA APARICIÓN DE UNA PALABRA CLAVE
     # --------------------------------------------------------
 
-    despues_version = " ".join(
-        palabras[indice_version + 1:]
+    indice_clave = indices_clave[-1]
+
+    # --------------------------------------------------------
+    # TOMAR EL TEXTO DESPUÉS DE LA PALABRA CLAVE
+    # --------------------------------------------------------
+
+    despues_clave = " ".join(
+        palabras[indice_clave + 1:]
     ).strip()
 
-
-    if not despues_version:
-
+    if not despues_clave:
         return None
 
-
-    print(
-        f"🔎 Después de versión: {despues_version}"
-    )
-
+    print(f"🔎 Después de {palabras[indice_clave]}: {despues_clave}")
 
     # --------------------------------------------------------
-    # BUSCAR COMANDO
+    # BUSCAR EL COMANDO EN EL ARREGLO DE VERSIONES
     # --------------------------------------------------------
 
     for comando in COMANDOS_ORDENADOS:
 
-        if _contiene_comando(comando, despues_version):
+        if _contiene_comando(comando, despues_clave):
 
             return (
                 COMANDOS_NORMALIZADOS[comando],
                 comando
             )
 
-
     return None
+
 class ControladorVersiones:
 
     def __init__(self):
