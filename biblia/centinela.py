@@ -12,7 +12,7 @@ PALABRAS_VERSICULO = {
     "versiculo",
     "versiculos",
     "verso",
-    "versos",
+    "versos"
 }
 
 # Quité "vamos": es demasiado común al hablar normal.
@@ -23,7 +23,7 @@ COMANDOS_BIBLIA = {
     "veamos",
     "busquemos",
     "poneme",
-    "pongame",
+    "pongame"
 }
 
 COMANDOS_PRESENTACION = {
@@ -32,7 +32,7 @@ COMANDOS_PRESENTACION = {
     "diapositiva",
     "diapositivas",
     "presentacion",
-    "positiva",
+    "positiva"
 }
 
 VENTANA_COMANDO = 8.0       # seg que el comando "veamos" sigue vigente

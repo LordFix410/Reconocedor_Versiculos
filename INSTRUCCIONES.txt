@@ -1,0 +1,2 @@
+CMD 
+py main.py

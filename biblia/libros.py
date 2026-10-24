@@ -22,6 +22,7 @@ LIBROS = {
     "nehemias": "Nehemias",
     "ester": "Ester",
     "job": "Job",
+    "Modrego": "Job",
     "salmo": "Salmos",
     "salmos": "Salmos",
     "proverbios": "Proverbios",
