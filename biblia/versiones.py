@@ -3,6 +3,8 @@ import re
 import unicodedata
 import pyautogui
 
+from biblia.esword import preparar_ventana
+
 def normalizar_texto(texto):
 
     texto = texto.lower()
@@ -327,89 +329,265 @@ for version in VERSIONES:
             comando
         )
 
+        anterior = COMANDOS_NORMALIZADOS.get(comando_normalizado)
+
+        if anterior is not None and anterior is not version:
+            # Mismo comando en dos versiones: gana la última.
+            print(
+                f"⚠️ Comando repetido en VERSIONES: "
+                f"'{comando_normalizado}' (gana la última)"
+            )
+
         COMANDOS_NORMALIZADOS[
             comando_normalizado
         ] = version
 
+COMANDOS_PALABRAS = {
+    comando: comando.split()
+    for comando in COMANDOS_NORMALIZADOS
+}
 
-# ============================================================
-# ORDENAR COMANDOS
-# ============================================================
-
+# Más largos primero (para que "reina valera 1960" gane a "reina valera")
 COMANDOS_ORDENADOS = sorted(
     COMANDOS_NORMALIZADOS.keys(),
     key=len,
     reverse=True
 )
 
-def _contiene_comando(comando, texto):
-    return re.search(
-        rf"(?<!\w){re.escape(comando)}(?!\w)",
-        texto
-    ) is not None
+
+# ============================================================
+# AJUSTES DE DETECCIÓN
+# ============================================================
+#
+# REGLA GENERAL: el nombre de una versión funciona SOLO, sin decir
+# "versión" ("...la biblia de las americas...", "dios habla hoy").
+#
+# EXCEPCIONES (necesitan palabra clave pegada):
+#   1) "Al Día" y "Jerusalén": se confunden con lectura normal
+#      ("hubo un día", "al llegar a Jerusalén").
+#   2) Palabras comunes del español que Vosk usa como error de otra
+#      versión ("puede", "cita", "sesenta", "actual"...): solas
+#      serían un desastre, así que también piden palabra clave.
+
+PALABRAS_CLAVE = {
+    "version", "biblia", "traduccion", "lenguaje", "aversion"
+}
+
+# Palabras clave que dicen "esto es una versión" sin lugar a dudas.
+CLAVES_VERSION = {
+    "version", "traduccion", "aversion", "lenguaje"
+}
+
+# Máximo de palabras permitidas ENTRE la palabra clave y el comando
+# ("la version de reina valera" -> 1 palabra en medio: "de").
+MAX_PALABRAS_ENTRE = 2
+
+# Para Al Día y Jerusalén: pegado a la clave, o con UNA de estas
+# palabras en medio ("biblia DE jerusalen"). "biblia en jerusalen"
+# NO cuenta.
+RELLENO_CLAVE = {"de", "la", "del"}
+
+# Posiciones (clic) de las versiones que SIEMPRE exigen palabra clave.
+POS_EXIGEN_CLAVE = {
+    (1031, 391),   # Biblia al Día
+    (1521, 393),   # Biblia de Jerusalén
+}
+
+
+def _norm(lista):
+    return {normalizar_texto(x) for x in lista}
+
+
+# Todos los comandos de Al Día y Jerusalén (se arma solo desde VERSIONES)
+REQUIEREN_CLAVE = {
+    comando
+    for comando, version in COMANDOS_NORMALIZADOS.items()
+    if version["pos"] in POS_EXIGEN_CLAVE
+}
+
+# Comandos que son palabras comunes (o suenan a otras cosas): solo
+# valen PEGADOS a la palabra clave ("version sesenta", "lenguaje actual").
+DEBILES = _norm([
+    "bad", "be a de", "al dia", "june", "pelea", "de lear",
+    "te el dia", "te elia", "actual", "tla", "sesenta", "fin de",
+    "de ti", "de te", "cab", "cita", "de cita", "visita", "pepita",
+    "puede", "pediste", "vedette", "diste", "castilla",
+    "para todos", "sencillo", "internacional", "viviente", "textual",
+    "arcas", "fernandez", "serafin",
+])
+
+# Los más peligrosos ("la biblia puede transformar...") solo valen
+# si la palabra clave es "version"/"traduccion", no "biblia".
+SOLO_CON_VERSION = _norm([
+    "puede", "pediste", "vedette", "diste", "cita", "de cita",
+    "visita", "pepita", "pelea", "de ti", "de te", "fin de",
+    "bad", "sesenta", "castilla", "june",
+])
+
+# Frases normales de sermón que contienen un nombre de versión:
+# "el pueblo de Dios" NO debe ser la versión LPD sin palabra clave.
+FRASES_COMUNES = _norm([
+    "pueblo de dios",
+])
+
+# Todo lo que NO puede dispararse sin palabra clave
+NECESITA_CLAVE = (
+    REQUIEREN_CLAVE | DEBILES | SOLO_CON_VERSION | FRASES_COMUNES
+)
+
 
 # ============================================================
 # BUSCAR VERSIÓN
 # ============================================================
 
+_ultimo_log = ""
 
-# ============================================================
-# BUSCAR VERSIÓN O BIBLIA
-# ============================================================
+
+def _buscar_sublista(palabras, frase):
+    """Posición donde empieza `frase` dentro de `palabras`, o None."""
+    n = len(frase)
+
+    for j in range(len(palabras) - n + 1):
+        if palabras[j:j + n] == frase:
+            return j
+
+    return None
+
+
+def _buscar_tras_clave(palabras, indice_clave):
+    """
+    Busca un comando justo DESPUÉS de la palabra clave
+    (máximo MAX_PALABRAS_ENTRE palabras en medio).
+    """
+
+    clave = palabras[indice_clave]
+    resto = palabras[indice_clave + 1:]
+
+    if not resto:
+        return None
+
+    candidatos = []
+
+    for comando in COMANDOS_ORDENADOS:
+
+        frase = COMANDOS_PALABRAS[comando]
+        j = _buscar_sublista(resto, frase)
+
+        if j is None:
+            continue
+
+        # Demasiado lejos de la palabra clave
+        if j > MAX_PALABRAS_ENTRE:
+            continue
+
+        # Al Día / Jerusalén: pegado, o con un solo "de/la/del" en medio
+        if comando in REQUIEREN_CLAVE:
+
+            if j > 1:
+                continue
+
+            if j == 1 and resto[0] not in RELLENO_CLAVE:
+                continue
+
+        # Palabras comunes: solo pegadas a la clave
+        if comando in DEBILES and j != 0:
+            continue
+
+        # Las más peligrosas: solo con "version"/"traduccion"
+        if comando in SOLO_CON_VERSION and clave not in CLAVES_VERSION:
+            continue
+
+        # "la biblia tiene sesenta y seis libros"
+        if comando == "sesenta" and resto[j + 1:j + 2] == ["y"]:
+            continue
+
+        candidatos.append((j, -len(comando), comando))
+
+    if not candidatos:
+        return None
+
+    # El más cercano a la palabra clave; a igual distancia, el más largo
+    _, _, mejor = min(candidatos)
+
+    return COMANDOS_NORMALIZADOS[mejor], mejor
+
+
+def _buscar_sin_clave(palabras):
+    """
+    Nombre de versión dicho SOLO ("...la biblia de las americas...").
+    Se ignoran los comandos que necesitan palabra clave.
+    Gana el último mencionado.
+    """
+
+    mejor = None
+    mejor_fin = -1
+
+    for comando in COMANDOS_ORDENADOS:
+
+        if comando in NECESITA_CLAVE:
+            continue
+
+        frase = COMANDOS_PALABRAS[comando]
+        j = _buscar_sublista(palabras, frase)
+
+        if j is None:
+            continue
+
+        fin = j + len(frase)
+
+        if fin > mejor_fin:
+            mejor_fin = fin
+            mejor = comando
+
+    if mejor is None:
+        return None
+
+    return COMANDOS_NORMALIZADOS[mejor], mejor
+
 
 def buscar_version(texto):
+
+    global _ultimo_log
 
     texto = normalizar_texto(texto)
     palabras = texto.split()
 
-    # --------------------------------------------------------
-    # DETECTAR PALABRAS CLAVE: VERSION O BIBLIA
-    # --------------------------------------------------------
+    if not palabras:
+        return None
 
-    palabras_clave = {"version", "biblia", "traduccion", "lenguaje", "aversion"}
+    # --------------------------------------------------------
+    # 1) CON PALABRA CLAVE (version / biblia / traduccion...)
+    #    Se prueba desde la última aparición hacia atrás.
+    # --------------------------------------------------------
 
     indices_clave = [
         i for i, palabra in enumerate(palabras)
-        if palabra in palabras_clave
+        if palabra in PALABRAS_CLAVE
     ]
 
-    # Si no mencionó ninguna palabra clave, no hacer nada
-    if not indices_clave:
-        return None
+    for indice in reversed(indices_clave):
+
+        resultado = _buscar_tras_clave(palabras, indice)
+
+        if resultado is not None:
+            return resultado
+
+    # Log de depuración (solo cuando cambia, para no llenar la consola)
+    if indices_clave:
+
+        despues = " ".join(palabras[indices_clave[-1] + 1:])
+
+        if despues and despues != _ultimo_log:
+            _ultimo_log = despues
+            print(f"🔎 Después de {palabras[indices_clave[-1]]}: {despues}")
 
     # --------------------------------------------------------
-    # TOMAR LA ÚLTIMA APARICIÓN DE UNA PALABRA CLAVE
+    # 2) SIN PALABRA CLAVE: el nombre de la versión basta
+    #    (menos Al Día, Jerusalén y las palabras comunes)
     # --------------------------------------------------------
 
-    indice_clave = indices_clave[-1]
+    return _buscar_sin_clave(palabras)
 
-    # --------------------------------------------------------
-    # TOMAR EL TEXTO DESPUÉS DE LA PALABRA CLAVE
-    # --------------------------------------------------------
-
-    despues_clave = " ".join(
-        palabras[indice_clave + 1:]
-    ).strip()
-
-    if not despues_clave:
-        return None
-
-    print(f"🔎 Después de {palabras[indice_clave]}: {despues_clave}")
-
-    # --------------------------------------------------------
-    # BUSCAR EL COMANDO EN EL ARREGLO DE VERSIONES
-    # --------------------------------------------------------
-
-    for comando in COMANDOS_ORDENADOS:
-
-        if _contiene_comando(comando, despues_clave):
-
-            return (
-                COMANDOS_NORMALIZADOS[comando],
-                comando
-            )
-
-    return None
 
 class ControladorVersiones:
 
@@ -434,6 +612,13 @@ class ControladorVersiones:
             return
 
         print(f"🎯 Versión: {comando_detectado}")
+
+        # Las coordenadas son de la ventana de e-Sword: buscarla
+        # (con reintentos) y ponerla al frente ANTES de hacer clic.
+        if preparar_ventana() is None:
+            print("⚠️ Sin e-Sword al frente: no se hace clic")
+            return
+
         pyautogui.click(*clave)
 
         # Si fue en el final, el bloque ya terminó

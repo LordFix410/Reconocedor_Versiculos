@@ -52,6 +52,42 @@ def contiene_libro(texto):
     return False
 
 
+def _libro_en(palabras, i):
+    """
+    Busca un libro que EMPIECE en la posición i, o que sea
+    la palabra i precedida de su número.
+
+    Devuelve (libro, inicio, longitud) o None.
+
+    Importante: "1 juan" / "2 timoteo" se prefieren sobre
+    "juan" / "timoteo" sueltos. Como se recorre de atrás hacia
+    adelante, al llegar a la palabra del libro hay que mirar
+    una palabra atrás para ver si traía número.
+    """
+
+    # Dos palabras que empiezan aquí: "1 juan", "cantar cantares"
+    if i + 2 <= len(palabras):
+
+        candidato = " ".join(palabras[i:i + 2])
+
+        if candidato in LIBROS:
+            return LIBROS[candidato], i, 2
+
+    # Una palabra
+    if palabras[i] in LIBROS:
+
+        if i > 0:
+
+            previo = f"{palabras[i - 1]} {palabras[i]}"
+
+            if previo in LIBROS:
+                return LIBROS[previo], i - 1, 2
+
+        return LIBROS[palabras[i]], i, 1
+
+    return None
+
+
 def detectar_referencia(texto):
 
     palabras = normalizar_palabras(texto)
@@ -59,28 +95,14 @@ def detectar_referencia(texto):
     # Preferir el libro mencionado más recientemente.
     for i in range(len(palabras) - 1, -1, -1):
 
-        libro = None
-        longitud_libro = 0
+        encontrado = _libro_en(palabras, i)
 
-        for cantidad in (2, 1):
-
-            if i + cantidad > len(palabras):
-                continue
-
-            candidato = " ".join(
-                palabras[i:i + cantidad]
-            )
-
-            if candidato in LIBROS:
-
-                libro = LIBROS[candidato]
-                longitud_libro = cantidad
-                break
-
-        if libro is None:
+        if encontrado is None:
             continue
 
-        posicion = i + longitud_libro
+        libro, inicio, longitud_libro = encontrado
+
+        posicion = inicio + longitud_libro
 
         # -------------------------
         # CAPÍTULO

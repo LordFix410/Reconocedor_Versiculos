@@ -7,10 +7,17 @@ REEMPLAZOS = {
     "primero": "1",
     "segunda": "2",
     "segundo": "2",
+    # Vosk a veces oye "segunda" como "segun" ("segun timoteo tres dieciseis").
+    # Solo se convierte si lo que sigue es un libro numerado (ver abajo).
+    "segun": "2",
     "tercera": "3",
     "tercer": "3",
     "tercero": "3",
 }
+
+# "segun juan 3:16" casi siempre es "según Juan" (el evangelio),
+# no "2 Juan", así que con "segun" no se convierte antes de estos libros.
+EXCEPCIONES_SEGUN = {"juan"}
 
 
 PALABRAS_RELLENO = {
@@ -68,9 +75,14 @@ def normalizar_palabras(texto):
                 None
             )
 
+            convertir = siguiente in LIBROS_NUMERADOS
+
+            if palabra == "segun" and siguiente in EXCEPCIONES_SEGUN:
+                convertir = False
+
             resultado.append(
                 REEMPLAZOS[palabra]
-                if siguiente in LIBROS_NUMERADOS
+                if convertir
                 else palabra
             )
             continue

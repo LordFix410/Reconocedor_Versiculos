@@ -22,7 +22,7 @@ LIBROS = {
     "nehemias": "Nehemias",
     "ester": "Ester",
     "job": "Job",
-    "Modrego": "Job",
+    "modrego": "Job",
     "salmo": "Salmos",
     "salmos": "Salmos",
     "proverbios": "Proverbios",
@@ -101,4 +101,16 @@ LIBROS = {
     "1juan": "1 Juan",
     "2juan": "2 Juan",
     "3juan": "3 Juan",
-}
+
+    # Libros numerados dichos SIN número: se toman como el primero
+    # ("pedro cinco" -> 1 Pedro 5). "2 pedro" / "segunda de pedro"
+    # siguen funcionando porque el detector prefiere "2 pedro".
+    # "juan" se queda como el evangelio de Juan.
+    "samuel": "1 Samuel",
+    "reyes": "1 Reyes",
+    "cronicas": "1 Cronicas",
+    "corintios": "1 Corintios",
+    "tesalonicenses": "1 Tesalonicenses",
+    "timoteo": "1 Timoteo",
+    "pedro": "1 Pedro",
+}

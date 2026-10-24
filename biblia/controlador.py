@@ -34,6 +34,10 @@ class Controlador:
             rapido=True
         )
 
+    def fin_de_frase(self):
+        """Vosk cerró una frase sin texto."""
+        self.centinela.fin_de_frase()
+
     def _ejecutar(
         self,
         evento,

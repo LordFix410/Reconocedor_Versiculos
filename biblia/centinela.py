@@ -32,16 +32,58 @@ COMANDOS_PRESENTACION = {
     "diapositiva",
     "diapositivas",
     "presentacion",
-    "positiva"
 }
+
+# "positiva" es como Vosk suele oír "diapositiva", pero también existe
+# "una actitud positiva". Solo cuenta si es TODO lo que se dijo.
+COMANDOS_PRESENTACION_SOLOS = {
+    "positiva",
+}
+
+# El comando de presentación se dice corto. Si la frase es larga
+# ("...y la representación de la diapositiva que...") se ignora.
+MAX_PALABRAS_PRESENTACION = 6
 
 VENTANA_COMANDO = 8.0       # seg que el comando "veamos" sigue vigente
 VENTANA_VERSICULO = 20.0    # seg para ignorar el mismo versículo repetido
 PALABRAS_CERCA = 10         # el comando debe estar en las últimas N palabras
+TTL_BUFFER = 10.0           # seg que una palabra vive en el buffer
 
 # Números que pueden seguir creciendo mientras Vosk aún habla
 # ("treinta" -> "treinta y cinco").
 NUMEROS_INCOMPLETOS = set(DECENAS) | set(CENTENAS) | {"veinte"}
+
+# Números que pueden seguir tras una "y" colgando
+# ("treinta y ...", "diez y seis").
+NUMEROS_ESPERAN_Y = NUMEROS_INCOMPLETOS | {"diez"}
+
+
+def _contiene_frase(palabras, frase):
+    """True si la lista de palabras contiene la frase completa
+    (por palabras, no por subcadena)."""
+    n = len(frase)
+    return any(
+        palabras[i:i + n] == frase
+        for i in range(len(palabras) - n + 1)
+    )
+
+
+def _termina_incompleto(palabras):
+    """
+    True si el parcial acaba en un número que aún puede crecer:
+    "... treinta"  o  "... treinta y"  (Vosk emite ese 'y' colgando).
+    """
+    if not palabras:
+        return False
+
+    if palabras[-1] in NUMEROS_INCOMPLETOS:
+        return True
+
+    return (
+        palabras[-1] == "y"
+        and len(palabras) > 1
+        and palabras[-2] in NUMEROS_ESPERAN_Y
+    )
 
 
 class Centinela:
@@ -49,6 +91,7 @@ class Centinela:
     def __init__(self, max_palabras=30):
 
         self.max_palabras = max_palabras
+        # Lista de (palabra, momento_en_que_llegó)
         self.buffer = []
 
         self.comando_hasta = 0.0
@@ -64,6 +107,17 @@ class Centinela:
         self.capitulo_actual = None
         self.tiempo_capitulo = 0.0
         self.ventana_correccion = 3.0
+
+    # ==========================================
+    # FIN DE FRASE (final vacío de Vosk)
+    # ==========================================
+
+    def fin_de_frase(self):
+        """
+        Vosk cerró la frase sin texto: ya no tiene sentido
+        recordar qué se ejecutó en el parcial.
+        """
+        self.evento_ejecutado_en_parcial = None
 
     # ==========================================
     # COMANDO DE BIBLIA (con caducidad)
@@ -133,17 +187,28 @@ class Centinela:
         self.libro_actual = libro
         self.capitulo_actual = capitulo
         self.tiempo_capitulo = time.monotonic()
-        
+
     def _numero_incompleto(self, palabras, inicio, usadas):
         """
         True si el parcial termina justo en un número
-        que todavía puede crecer ("treinta" -> "treinta y cinco").
+        que todavía puede crecer:
+          "treinta"   -> "treinta y cinco"
+          "treinta y" -> "treinta y cinco"   (la 'y' colgando)
         En ese caso esperamos al resultado final.
         """
-        if inicio + usadas < len(palabras):
+        fin = inicio + usadas
+        resto = palabras[fin:]
+
+        # Si después del número vienen otras palabras, ya terminó.
+        if resto and resto != ["y"]:
             return False
 
-        return palabras[inicio + usadas - 1] in NUMEROS_INCOMPLETOS
+        ultima = palabras[fin - 1]
+
+        if resto == ["y"]:
+            return ultima in NUMEROS_ESPERAN_Y
+
+        return ultima in NUMEROS_INCOMPLETOS
 
     # ==========================================
     # PARCIALES VOSK
@@ -162,11 +227,13 @@ class Centinela:
 
         # =====================================
         # "versiculo ocho"
+        # Se recorre de atrás hacia adelante: manda el
+        # ÚLTIMO "versiculo N" dicho en la frase.
         # =====================================
 
-        for i, palabra in enumerate(palabras):
+        for i in range(len(palabras) - 1, -1, -1):
 
-            if palabra not in PALABRAS_VERSICULO:
+            if palabras[i] not in PALABRAS_VERSICULO:
                 continue
 
             posicion = i + 1
@@ -256,8 +323,9 @@ class Centinela:
         capitulo = referencia["capitulo"]
         versiculo = referencia["versiculo"]
 
-        # Esperar si el número final aún puede crecer.
-        if palabras[-1] in NUMEROS_INCOMPLETOS:
+        # Esperar si el número final aún puede crecer
+        # ("treinta" o "treinta y").
+        if _termina_incompleto(palabras):
             return None
 
         evento = (
@@ -292,6 +360,11 @@ class Centinela:
 
     def procesar(self, texto):
 
+        # Guardar lo que ejecutó el parcial y limpiarlo SIEMPRE:
+        # un final cierra la frase, pase lo que pase después.
+        ejecutado = self.evento_ejecutado_en_parcial
+        self.evento_ejecutado_en_parcial = None
+
         palabras_nuevas = normalizar_palabras(texto)
 
         if not palabras_nuevas:
@@ -299,15 +372,27 @@ class Centinela:
 
         # --------------------------------------
         # PRESENTACIÓN
+        # (por palabras completas, no por subcadena, y solo
+        # en frases cortas: el comando se dice solo)
         # --------------------------------------
-        texto_norm = " ".join(palabras_nuevas)
-        if any(
-            c in texto_norm
-            for c in COMANDOS_PRESENTACION
-        ):
+
+        es_presentacion = False
+
+        if len(palabras_nuevas) <= MAX_PALABRAS_PRESENTACION:
+            es_presentacion = any(
+                _contiene_frase(palabras_nuevas, c.split())
+                for c in COMANDOS_PRESENTACION
+            )
+
+        if not es_presentacion:
+            es_presentacion = (
+                len(palabras_nuevas) == 1
+                and palabras_nuevas[0] in COMANDOS_PRESENTACION_SOLOS
+            )
+
+        if es_presentacion:
             self.comando_hasta = 0.0
             self.buffer.clear()
-            self.evento_ejecutado_en_parcial = None
 
             return {"tipo": "PRESENTACION"}
 
@@ -319,15 +404,19 @@ class Centinela:
             self._armar_comando()
 
         # --------------------------------------
-        # BUFFER
+        # BUFFER (las palabras viejas caducan)
         # --------------------------------------
 
-        self.buffer.extend(palabras_nuevas)
+        ahora = time.monotonic()
+
+        self.buffer = [
+            (p, t) for p, t in self.buffer
+            if ahora - t <= TTL_BUFFER
+        ]
+        self.buffer.extend((p, ahora) for p in palabras_nuevas)
         self.buffer = self.buffer[-self.max_palabras:]
 
-        contexto = " ".join(self.buffer)
-
-        ejecutado = self.evento_ejecutado_en_parcial
+        contexto = " ".join(p for p, _ in self.buffer)
 
         # ======================================
         # 1. REFERENCIA COMPLETA / CAPÍTULO
@@ -352,7 +441,6 @@ class Centinela:
                 and ejecutado[1] == libro
                 and ejecutado[2] == capitulo
             ):
-                self.evento_ejecutado_en_parcial = None
                 self.comando_hasta = 0.0
                 self.buffer.clear()
                 return None
@@ -376,7 +464,6 @@ class Centinela:
                 }
 
             self.buffer.clear()
-            self.evento_ejecutado_en_parcial = None
 
             # Ya ejecutado por el parcial: no repetir.
             if evento == ejecutado:
@@ -386,7 +473,11 @@ class Centinela:
             if self._es_duplicado(evento):
                 return None
 
-            if versiculo is not None:
+            if versiculo is None:
+                # e-Sword vuelve al inicio del capítulo: el versículo
+                # anterior ya no cuenta como "repetido".
+                self.ultimo_versiculo = None
+            else:
                 self.ultimo_versiculo = versiculo
                 self.tiempo_versiculo = time.monotonic()
 
@@ -419,8 +510,6 @@ class Centinela:
 
                 if numero2 is not None:
 
-                    self.evento_ejecutado_en_parcial = None
-
                     if self._versiculo_repetido(numero2):
                         return None
 
@@ -434,11 +523,12 @@ class Centinela:
 
         # ======================================
         # 3. "VERSICULO 18"
+        # (de atrás hacia adelante: manda el último)
         # ======================================
 
-        for i, palabra in enumerate(palabras_nuevas):
+        for i in range(len(palabras_nuevas) - 1, -1, -1):
 
-            if palabra not in PALABRAS_VERSICULO:
+            if palabras_nuevas[i] not in PALABRAS_VERSICULO:
                 continue
 
             posicion = i + 1
@@ -459,7 +549,6 @@ class Centinela:
             evento = ("VERSICULO", numero)
 
             self.buffer.clear()
-            self.evento_ejecutado_en_parcial = None
 
             # Ya ejecutado en el parcial o repetido.
             if evento == ejecutado:

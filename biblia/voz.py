@@ -42,7 +42,13 @@ class BibliaVoz:
         self.tiempo_inicio = time.monotonic()
         self.intervalo_reinicio = 60 * 60
 
-    def callback(self, indata, frames, time, status):
+    def callback(self, indata, frames, time_info, status):
+        # OJO: el parámetro se llama time_info para no tapar
+        # al módulo `time` que se importa arriba.
+
+        if status:
+            # Overflow / underflow de audio: antes pasaba en silencio.
+            print("⚠️ Audio:", status)
 
         try:
             self.cola.put_nowait(bytes(indata))
@@ -55,7 +61,19 @@ class BibliaVoz:
 
             except queue.Empty:
                 pass
-    
+
+    def _seguro(self, nombre, funcion, *args, **kwargs):
+        """
+        Ejecuta una acción sin dejar que un error (clic fallido,
+        e-Sword cerrado, FailSafe del mouse...) mate la escucha.
+        """
+        try:
+            return funcion(*args, **kwargs)
+
+        except Exception as e:
+            print(f"❌ Error en {nombre}:", repr(e))
+            return None
+
     def escuchar(self):
 
         print("🎤 Escuchando...")
@@ -123,11 +141,30 @@ class BibliaVoz:
                             texto
                         )
 
-                        self.controlador.procesar(
+                        self._seguro(
+                            "controlador",
+                            self.controlador.procesar,
                             texto
                         )
-                        self.versiones.procesar(
+                        self._seguro(
+                            "versiones",
+                            self.versiones.procesar,
                             texto,
+                            final=True
+                        )
+
+                    else:
+
+                        # Final vacío: cerrar la frase igual, para que
+                        # no queden eventos del parcial "pegados".
+                        self._seguro(
+                            "fin de frase",
+                            self.controlador.fin_de_frase
+                        )
+                        self._seguro(
+                            "versiones",
+                            self.versiones.procesar,
+                            "",
                             final=True
                         )
 
@@ -143,21 +180,25 @@ class BibliaVoz:
                         "partial",
                         ""
                     ).strip()
-                    if texto and texto != self.ultimo_parcial:
-                        print("⚡ PARCIAL:", texto)
 
                     if (
                         texto
                         and texto != self.ultimo_parcial
                     ):
+                        print("⚡ PARCIAL:", texto)
+
                         self.ultimo_parcial = texto
 
                         # IMPORTANTE:
                         # Procesamos parciales para
                         # conseguir baja latencia.
-                        self.controlador.procesar_parcial(
+                        self._seguro(
+                            "controlador (parcial)",
+                            self.controlador.procesar_parcial,
                             texto
                         )
-                        self.versiones.procesar(
+                        self._seguro(
+                            "versiones (parcial)",
+                            self.versiones.procesar,
                             texto
                         )

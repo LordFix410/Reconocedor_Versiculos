@@ -35,6 +35,8 @@ VEINTIS = {
     "veintisiete": 27,
     "veintiocho": 28,
     "veintinueve": 29,
+    "veintiun": 21,
+    "veintiuna": 21,
 }
 
 DECENAS = {
@@ -86,6 +88,17 @@ def convertir_numero(palabras):
     if primera in UNIDADES:
         return UNIDADES[primera], 1
 
+    # "diez y seis", "veinte y cinco" (algunos modelos de Vosk
+    # lo escriben así en vez de "dieciseis" / "veinticinco")
+    if primera in ("diez", "veinte"):
+        if (
+            len(palabras) >= 3
+            and palabras[1].lower() == "y"
+            and UNIDADES.get(palabras[2].lower(), 0) > 0
+        ):
+            base = 10 if primera == "diez" else 20
+            return base + UNIDADES[palabras[2].lower()], 3
+
     # 10 - 19
     if primera in ESPECIALES:
         return ESPECIALES[primera], 1
@@ -129,4 +142,4 @@ def convertir_numero(palabras):
 
         return valor, 1
 
-    return None, 0
+    return None, 0
