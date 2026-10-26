@@ -17,6 +17,10 @@ ANTES_CAPITULO = {
     "cap",
 }
 
+# De las anteriores, las que de verdad significan "capítulo"
+# (para saber si el predicador lo dijo explícitamente).
+PALABRAS_CAPITULO = ANTES_CAPITULO - {"numero", "en", "su"}
+
 ANTES_VERSICULO = {
     "versiculo",
     "versiculos",
@@ -63,7 +67,9 @@ def _libro_en(palabras, i):
     Busca un libro que EMPIECE en la posición i, o que sea
     la palabra i precedida de su número.
 
-    Devuelve (libro, inicio, longitud) o None.
+    Devuelve (libro, inicio, longitud, clave) o None.
+    `clave` es la palabra tal como se dijo (ej. "hecho", "cantar"),
+    para poder tratar distinto las palabras ambiguas.
 
     Importante: "1 juan" / "2 timoteo" se prefieren sobre
     "juan" / "timoteo" sueltos. Como se recorre de atrás hacia
@@ -77,7 +83,7 @@ def _libro_en(palabras, i):
         candidato = " ".join(palabras[i:i + 2])
 
         if candidato in LIBROS:
-            return LIBROS[candidato], i, 2
+            return LIBROS[candidato], i, 2, candidato
 
     # Una palabra
     if palabras[i] in LIBROS:
@@ -87,9 +93,9 @@ def _libro_en(palabras, i):
             previo = f"{palabras[i - 1]} {palabras[i]}"
 
             if previo in LIBROS:
-                return LIBROS[previo], i - 1, 2
+                return LIBROS[previo], i - 1, 2, previo
 
-        return LIBROS[palabras[i]], i, 1
+        return LIBROS[palabras[i]], i, 1, palabras[i]
 
     return None
 
@@ -106,7 +112,7 @@ def detectar_referencia(texto):
         if encontrado is None:
             continue
 
-        libro, inicio, longitud_libro = encontrado
+        libro, inicio, longitud_libro, clave = encontrado
 
         posicion = inicio + longitud_libro
 
@@ -114,10 +120,18 @@ def detectar_referencia(texto):
         # CAPÍTULO
         # -------------------------
 
+        antes = posicion
+
         posicion = _saltar(
             palabras,
             posicion,
             ANTES_CAPITULO
+        )
+
+        # ¿Dijo explícitamente "capítulo"?
+        con_capitulo = any(
+            p in PALABRAS_CAPITULO
+            for p in palabras[antes:posicion]
         )
 
         capitulo, usadas = convertir_numero(
@@ -149,6 +163,8 @@ def detectar_referencia(texto):
                 "libro": libro,
                 "capitulo": capitulo,
                 "versiculo": None,
+                "clave_libro": clave,
+                "con_capitulo": con_capitulo,
             }
 
         posicion += usadas
@@ -177,6 +193,8 @@ def detectar_referencia(texto):
             "libro": libro,
             "capitulo": capitulo,
             "versiculo": versiculo,
+            "clave_libro": clave,
+            "con_capitulo": con_capitulo,
         }
 
     return None

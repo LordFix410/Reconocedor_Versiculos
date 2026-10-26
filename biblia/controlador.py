@@ -1,6 +1,7 @@
 from biblia.centinela import Centinela
 from biblia.esword import buscar
 from biblia.obs import mostrar_presentacion
+from biblia.acciones import enviar
 
 
 class Controlador:
@@ -57,7 +58,7 @@ class Controlador:
 
             print("🖥️ Presentación")
 
-            mostrar_presentacion()
+            enviar("presentación", mostrar_presentacion)
             return
 
         # -------------------------
@@ -101,7 +102,10 @@ class Controlador:
         else:
             print("📖", cita)
 
-        buscar(
+        # Se ejecuta en el hilo de acciones: Vosk no espera a e-Sword.
+        enviar(
+            f"buscar {cita}",
+            buscar,
             cita,
             mostrar_obs=evento["mostrar_obs"]
         )

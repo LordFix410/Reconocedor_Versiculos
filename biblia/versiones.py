@@ -4,6 +4,7 @@ import unicodedata
 import pyautogui
 
 from biblia.esword import preparar_ventana
+from biblia.acciones import enviar
 
 def normalizar_texto(texto):
 
@@ -613,13 +614,27 @@ class ControladorVersiones:
 
         print(f"🎯 Versión: {comando_detectado}")
 
+        # Si fue en el final, el bloque ya terminó
+        self.click_en_bloque = None if final else clave
+
+        # El clic se hace en el hilo de acciones (en orden con las
+        # búsquedas de e-Sword, sin bloquear la escucha).
+        enviar(
+            f"clic versión {comando_detectado}",
+            self._hacer_click,
+            clave
+        )
+
+    def _hacer_click(self, clave):
+
         # Las coordenadas son de la ventana de e-Sword: buscarla
         # (con reintentos) y ponerla al frente ANTES de hacer clic.
         if preparar_ventana() is None:
             print("⚠️ Sin e-Sword al frente: no se hace clic")
+
+            # Permitir reintentar el mismo clic en este bloque
+            if self.click_en_bloque == clave:
+                self.click_en_bloque = None
             return
 
         pyautogui.click(*clave)
-
-        # Si fue en el final, el bloque ya terminó
-        self.click_en_bloque = None if final else clave

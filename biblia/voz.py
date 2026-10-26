@@ -12,6 +12,11 @@ from biblia.controlador import Controlador
 from biblia.versiones import ControladorVersiones
 
 
+# Imprimir cada parcial en la consola de Windows es lento.
+# Ponlo en True solo cuando estés depurando lo que oye Vosk.
+MOSTRAR_PARCIALES = False
+
+
 class BibliaVoz:
 
     def __init__(
@@ -185,7 +190,8 @@ class BibliaVoz:
                         texto
                         and texto != self.ultimo_parcial
                     ):
-                        print("⚡ PARCIAL:", texto)
+                        if MOSTRAR_PARCIALES:
+                            print("⚡ PARCIAL:", texto)
 
                         self.ultimo_parcial = texto
 

@@ -110,6 +110,11 @@ def preparar_ventana():
             _ventana = None
             continue
 
+        # Si e-Sword ya tiene el foco no hace falta reactivarla
+        # (ahorra ~0.1 s en cada búsqueda y en cada clic de versión).
+        if _en_primer_plano(ventana):
+            return ventana
+
         try:
             ventana.activate()
         except Exception:

@@ -51,6 +51,28 @@ VENTANA_VERSICULO = 20.0    # seg para ignorar el mismo versículo repetido
 PALABRAS_CERCA = 10         # el comando debe estar en las últimas N palabras
 TTL_BUFFER = 10.0           # seg que una palabra vive en el buffer
 
+# ------------------------------------------------------------
+# PALABRAS AMBIGUAS: nombres de libro que también son palabras
+# o nombres comunes en una prédica ("vamos a cantar dos canciones",
+# "Marcos tres veces dijo").
+#
+#  - ESTRICTAS: solo cuentan si el predicador dijo "capítulo" o
+#    hay un comando de Biblia vigente ("veamos...", "miremos...").
+#  - NOMBRES: igual, pero SOLO cuando no traen versículo.
+#    "Marcos tres dieciseis" sí pasa; "Marcos tres veces" no.
+#
+# Las claves son la palabra tal como se dijo (como en libros.py).
+# ------------------------------------------------------------
+CLAVES_ESTRICTAS = {
+    "hecho", "cantar", "numeros", "amos",
+    "revelacion", "revelaciones", "vivencias",
+}
+
+CLAVES_NOMBRES = {
+    "marcos", "lucas", "mateo", "daniel", "santiago", "tito",
+    "rut", "judas", "ester", "job", "joel", "jonas",
+}
+
 # Números que pueden seguir creciendo mientras Vosk aún habla
 # ("treinta" -> "treinta y cinco").
 # ('cien' ya no puede crecer: 101 es 'ciento uno')
@@ -193,6 +215,21 @@ class Centinela:
         self.capitulo_actual = capitulo
         self.tiempo_capitulo = time.monotonic()
 
+    def _referencia_valida(self, ref):
+        """
+        Filtra libros ambiguos: ver CLAVES_ESTRICTAS / CLAVES_NOMBRES.
+        """
+        clave = ref.get("clave_libro")
+
+        if clave in CLAVES_ESTRICTAS:
+            exigir = True
+        elif clave in CLAVES_NOMBRES and ref["versiculo"] is None:
+            exigir = True
+        else:
+            return True
+
+        return bool(ref.get("con_capitulo")) or self._comando_activo()
+
     def _numero_incompleto(self, palabras, inicio, usadas):
         """
         True si el parcial termina justo en un número
@@ -321,6 +358,9 @@ class Centinela:
         if referencia is None:
             return None
 
+        if not self._referencia_valida(referencia):
+            return None
+
         if referencia["versiculo"] is None:
             return None
 
@@ -428,6 +468,12 @@ class Centinela:
         # ======================================
 
         referencia = detectar_referencia(contexto)
+
+        if (
+            referencia is not None
+            and not self._referencia_valida(referencia)
+        ):
+            referencia = None
 
         if referencia is not None:
 
