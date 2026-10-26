@@ -5,7 +5,9 @@ from biblia.detector import (
     contiene_libro,
 )
 from biblia.normalizador import normalizar_palabras
-from biblia.numeros import convertir_numero, DECENAS, CENTENAS
+from biblia.numeros import (
+    convertir_numero, DECENAS, CENTENAS, CIEN_EXACTO
+)
 
 
 PALABRAS_VERSICULO = {
@@ -51,7 +53,10 @@ TTL_BUFFER = 10.0           # seg que una palabra vive en el buffer
 
 # Números que pueden seguir creciendo mientras Vosk aún habla
 # ("treinta" -> "treinta y cinco").
-NUMEROS_INCOMPLETOS = set(DECENAS) | set(CENTENAS) | {"veinte"}
+# ('cien' ya no puede crecer: 101 es 'ciento uno')
+NUMEROS_INCOMPLETOS = (
+    set(DECENAS) | (set(CENTENAS) - CIEN_EXACTO) | {"veinte"}
+)
 
 # Números que pueden seguir tras una "y" colgando
 # ("treinta y ...", "diez y seis").

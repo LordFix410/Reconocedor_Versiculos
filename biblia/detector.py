@@ -9,6 +9,12 @@ ANTES_CAPITULO = {
     "numero",
     "en",
     "su",
+    # Cómo suele oír Vosk la palabra "capítulo":
+    "capital",
+    "capitul",
+    "capitol",
+    "capi",
+    "cap",
 }
 
 ANTES_VERSICULO = {

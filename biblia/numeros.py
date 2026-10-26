@@ -51,6 +51,7 @@ DECENAS = {
 
 CENTENAS = {
     "cien": 100,
+    "sien": 100,   # Vosk a veces oye "cien" como "sien"
     "ciento": 100,
     "doscientos": 200,
     "trescientos": 300,
@@ -61,6 +62,10 @@ CENTENAS = {
     "ochocientos": 800,
     "novecientos": 900,
 }
+
+
+# Formas que NUNCA llevan unidades detrás
+CIEN_EXACTO = {"cien", "sien"}
 
 
 def convertir_numero(palabras):
@@ -129,6 +134,11 @@ def convertir_numero(palabras):
     if primera in CENTENAS:
 
         valor = CENTENAS[primera]
+
+        # "cien" es SIEMPRE 100 exacto (101 = "ciento uno").
+        # Sin esto, "salmos cien diez" (100:10) salía como 110.
+        if primera in CIEN_EXACTO:
+            return valor, 1
 
         if len(palabras) == 1:
             return valor, 1
