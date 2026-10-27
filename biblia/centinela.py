@@ -3,6 +3,7 @@ import time
 from biblia.detector import (
     detectar_referencia,
     contiene_libro,
+    PALABRAS_CAPITULO,
 )
 from biblia.normalizador import normalizar_palabras
 from biblia.numeros import (
@@ -295,6 +296,18 @@ class Centinela:
 
             if self._numero_incompleto(
                 palabras, posicion, usadas
+            ):
+                return None
+
+            # "versiculo tres del capitulo cinco de exodo": todavía
+            # falta el libro. Esperar en vez de buscar el 3 en el
+            # capítulo equivocado.
+            if (
+                any(
+                    p in PALABRAS_CAPITULO
+                    for p in palabras[posicion + usadas:]
+                )
+                and detectar_referencia(texto) is None
             ):
                 return None
 

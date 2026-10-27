@@ -413,7 +413,7 @@ DEBILES = _norm([
     "te el dia", "te elia", "actual", "tla", "sesenta", "fin de",
     "de ti", "de te", "cab", "cita", "de cita", "visita", "pepita",
     "puede", "pediste", "vedette", "diste", "castilla",
-    "para todos", "sencillo", "internacional", "viviente", "textual",
+    "para todos", "sencillo", "internacional", "viviente",
     "arcas", "fernandez", "serafin",
 ])
 
